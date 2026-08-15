@@ -256,6 +256,8 @@ def access_active(chat_id):
 
 def remember_user(update):
     user = update.effective_user
+    if not user:
+        return
     data = load_data()
     data.setdefault("users", {})[str(user.id)] = {
         **data.setdefault("users", {}).get(str(user.id), {}),
@@ -269,15 +271,18 @@ def remember_user(update):
 # ─── Rate Limit Middleware ───────────────────────────────────────────────────
 async def check_rate_limit(update: Update) -> bool:
     """Check if user is within rate limit. Returns True if allowed."""
+    if not update.effective_chat:
+        return True
     user_id = update.effective_chat.id
     if is_admin(user_id):
         return True  # Admin bypass
     if not rate_limiter.is_allowed(user_id):
         remaining_time = rate_limiter.reset_time(user_id)
-        await update.effective_message.reply_text(
-            f"Request အများကြီးပို့နေပါတယ်။ {remaining_time:.0f} စက္ကန့် စောင့်ပါ။\n"
-            f"ကန့်သတ်ချက်: {RATE_LIMIT_MAX_REQUESTS} requests / {RATE_LIMIT_WINDOW}s"
-        )
+        if update.effective_message:
+            await update.effective_message.reply_text(
+                f"Request အများကြီးပို့နေပါတယ်။ {remaining_time:.0f} စက္ကန့် စောင့်ပါ။\n"
+                f"ကန့်သတ်ချက်: {RATE_LIMIT_MAX_REQUESTS} requests / {RATE_LIMIT_WINDOW}s"
+            )
         return False
     return True
 
@@ -286,55 +291,61 @@ async def check_rate_limit(update: Update) -> bool:
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     start_time = time.time()
     remember_user(update)
-    await update.effective_message.reply_text(
-        "Magic Key Bot မှ ကြိုဆိုပါတယ်။\n\n"
-        "သင့် key ကို /key <your-key> နဲ့ activate လုပ်ပါ။\n"
-        "ပြီးရင် /input <url> နဲ့ URL ထည့်နိုင်ပါတယ်။\n"
-        "Admin: /genkey <duration> <user_id>\n/help နှိပ်ပြီး အသေးစိတ်ကြည့်ပါ။"
-    )
+    if update.effective_message:
+        await update.effective_message.reply_text(
+            "Magic Key Bot မှ ကြိုဆိုပါတယ်။\n\n"
+            "သင့် key ကို /key <your-key> နဲ့ activate လုပ်ပါ။\n"
+            "ပြီးရင် /input <url> နဲ့ URL ထည့်နိုင်ပါတယ်။\n"
+            "Admin: /genkey <duration> <user_id>\n/help နှိပ်ပြီး အသေးစိတ်ကြည့်ပါ။"
+        )
     benchmark.record("start", time.time() - start_time)
 
 
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     start_time = time.time()
     remember_user(update)
-    await update.effective_message.reply_text(
-        "Commands:\n"
-        "/key <key> — key activate လုပ်ရန်\n"
-        "/input <url> — URL ထည့်ရန်\n"
-        "/status — access status ကြည့်ရန်\n"
-        "/scan <url> — URL scan လုပ်ရန်\n"
-        "/stopscan — scan ရပ်ရန်\n"
-        "/genkey <1h|2h|1d|1w> <user_id> — key ထုတ်ရန် (admin only)\n"
-        "/delkey <key|user_id> — key ဖျက်ရန် (admin only)\n"
-        "/listkeys — key အားလုံးကြည့်ရန် (admin only)\n"
-        "/ratelimit — rate limit status ကြည့်ရန်\n"
-        "/adminstats — stats ကြည့်ရန် (admin only)\n"
-        "/benchmark — benchmark stats (admin only)\n\n"
-        "Password, session string, login link များ မပို့ပါနဲ့။"
-    )
+    if update.effective_message:
+        await update.effective_message.reply_text(
+            "Commands:\n"
+            "/key <key> — key activate လုပ်ရန်\n"
+            "/input <url> — URL ထည့်ရန်\n"
+            "/status — access status ကြည့်ရန်\n"
+            "/scan <url> — URL scan လုပ်ရန်\n"
+            "/stopscan — scan ရပ်ရန်\n"
+            "/genkey <1h|2h|1d|1w> <user_id> — key ထုတ်ရန် (admin only)\n"
+            "/delkey <key|user_id> — key ဖျက်ရန် (admin only)\n"
+            "/listkeys — key အားလုံးကြည့်ရန် (admin only)\n"
+            "/ratelimit — rate limit status ကြည့်ရန်\n"
+            "/adminstats — stats ကြည့်ရန် (admin only)\n"
+            "/benchmark — benchmark stats (admin only)\n\n"
+            "Password, session string, login link များ မပို့ပါနဲ့။"
+        )
     benchmark.record("help", time.time() - start_time)
 
 
 async def genkey(update: Update, context: ContextTypes.DEFAULT_TYPE):
     start_time = time.time()
     remember_user(update)
-    if not is_admin(update.effective_chat.id):
-        await update.effective_message.reply_text("Admin only.")
+    if not update.effective_chat or not is_admin(update.effective_chat.id):
+        if update.effective_message:
+            await update.effective_message.reply_text("Admin only.")
         return
     if len(context.args) != 2:
-        await update.effective_message.reply_text("အသုံးပြုပုံ: /genkey 1h 1901101365")
+        if update.effective_message:
+            await update.effective_message.reply_text("အသုံးပြုပုံ: /genkey 1h 1901101365")
         return
     duration = parse_duration(context.args[0])
     if duration is None:
-        await update.effective_message.reply_text("သက်တမ်း မှားနေပါတယ်။ 30m, 1h, 2h, 1d, 1w စသဖြင့် ထည့်ပါ။")
+        if update.effective_message:
+            await update.effective_message.reply_text("သက်တမ်း မှားနေပါတယ်။ 30m, 1h, 2h, 1d, 1w စသဖြင့် ထည့်ပါ။")
         return
     try:
         target_id = int(context.args[1])
         if target_id <= 0:
             raise ValueError
     except ValueError:
-        await update.effective_message.reply_text("User ID သည် ဂဏန်းဖြစ်ရပါမယ်။")
+        if update.effective_message:
+            await update.effective_message.reply_text("User ID သည် ဂဏန်းဖြစ်ရပါမယ်။")
         return
     key = make_key()
     while key in load_data().get("keys", {}):
@@ -351,10 +362,11 @@ async def genkey(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "revoked": False,
     }
     save_data(data)
-    await update.effective_message.reply_text(
-        f"User {target_id} အတွက် key ထုတ်ပြီးပါပြီ:\n\n<code>{key}</code>\n\nသက်တမ်းကုန်ချိန်: {iso(expires)}",
-        parse_mode="HTML",
-    )
+    if update.effective_message:
+        await update.effective_message.reply_text(
+            f"User {target_id} အတွက် key ထုတ်ပြီးပါပြီ:\n\n<code>{key}</code>\n\nသက်တမ်းကုန်ချိန်: {iso(expires)}",
+            parse_mode="HTML",
+        )
     benchmark.record("genkey", time.time() - start_time)
 
 
@@ -364,26 +376,32 @@ async def key_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await check_rate_limit(update):
         return
     if len(context.args) != 1:
-        await update.effective_message.reply_text("အသုံးပြုပုံ: /key <key>")
+        if update.effective_message:
+            await update.effective_message.reply_text("အသုံးပြုပုံ: /key <key>")
         return
     supplied = context.args[0].strip().upper()
     data = load_data()
     record = data.get("keys", {}).get(supplied)
     if not record:
-        await update.effective_message.reply_text("Key မှားနေပါတယ်။")
+        if update.effective_message:
+            await update.effective_message.reply_text("Key မှားနေပါတယ်။")
         return
     if record.get("revoked"):
-        await update.effective_message.reply_text("ဒီ key ကို ပိတ်ထားပါပြီ။")
+        if update.effective_message:
+            await update.effective_message.reply_text("ဒီ key ကို ပိတ်ထားပါပြီ။")
         return
-    if record.get("target_chat_id") != update.effective_chat.id:
-        await update.effective_message.reply_text("သင်၏ key ကို registered မလုပ်ရသေးပါ")
+    if not update.effective_chat or record.get("target_chat_id") != update.effective_chat.id:
+        if update.effective_message:
+            await update.effective_message.reply_text("သင်၏ key ကို registered မလုပ်ရသေးပါ")
         return
     try:
         if now() >= datetime.fromisoformat(record["expires_at"]):
-            await update.effective_message.reply_text("ဒီ key သက်တမ်းကုန်သွားပါပြီ။")
+            if update.effective_message:
+                await update.effective_message.reply_text("ဒီ key သက်တမ်းကုန်သွားပါပြီ။")
             return
     except (KeyError, ValueError, TypeError):
-        await update.effective_message.reply_text("ဒီ key မှားနေပါတယ်။")
+        if update.effective_message:
+            await update.effective_message.reply_text("ဒီ key မှားနေပါတယ်။")
         return
     record["activated_by"] = update.effective_chat.id
     record["activated_at"] = iso(now())
@@ -393,22 +411,27 @@ async def key_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "expires_at": record["expires_at"],
     }
     save_data(data)
-    await update.effective_message.reply_text("Key activate ပြီးပါပြီ။ အခု /input သုံးနိုင်ပါပြီ။")
+    if update.effective_message:
+        await update.effective_message.reply_text("Key activate ပြီးပါပြီ။ အခု /input သုံးနိုင်ပါပြီ။")
     benchmark.record("key", time.time() - start_time)
 
 
 async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     start_time = time.time()
     remember_user(update)
+    if not update.effective_chat:
+        return
     if is_admin(update.effective_chat.id):
-        await update.effective_message.reply_text("Admin bypass - အကန့်အသတ်မရှိ သုံးနိုင်ပါတယ်။")
+        if update.effective_message:
+            await update.effective_message.reply_text("Admin bypass - အကန့်အသတ်မရှိ သုံးနိုင်ပါတယ်။")
         return
     data = load_data()
     record = data.get("users", {}).get(str(update.effective_chat.id), {})
-    if record.get("active_key") and access_active(update.effective_chat.id):
-        await update.effective_message.reply_text(f"Access ရှိပါတယ်။ သက်တမ်း: {record['expires_at']}")
-    else:
-        await update.effective_message.reply_text("Active key မရှိပါ။ /key <key> နဲ့ activate လုပ်ပါ။")
+    if update.effective_message:
+        if record.get("active_key") and access_active(update.effective_chat.id):
+            await update.effective_message.reply_text(f"Access ရှိပါတယ်။ သက်တမ်း: {record['expires_at']}")
+        else:
+            await update.effective_message.reply_text("Active key မရှိပါ။ /key <key> နဲ့ activate လုပ်ပါ။")
     benchmark.record("status", time.time() - start_time)
 
 
@@ -417,18 +440,24 @@ async def input_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     remember_user(update)
     if not await check_rate_limit(update):
         return
+    if not update.effective_chat:
+        return
     if not is_admin(update.effective_chat.id) and not access_active(update.effective_chat.id):
-        await update.effective_message.reply_text("Key အရင် activate လုပ်ပါ။ /key <key>")
+        if update.effective_message:
+            await update.effective_message.reply_text("Key အရင် activate လုပ်ပါ။ /key <key>")
         return
     if len(context.args) != 1:
-        await update.effective_message.reply_text("အသုံးပြုပုံ: /input <url>")
+        if update.effective_message:
+            await update.effective_message.reply_text("အသုံးပြုပုံ: /input <url>")
         return
     raw = context.args[0].strip()
     parsed = urlparse(raw)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        await update.effective_message.reply_text("Session URL မှားယွင်းနေပါသည်။")
+        if update.effective_message:
+            await update.effective_message.reply_text("Session URL မှားယွင်းနေပါသည်။")
         return
-    await update.effective_message.reply_text("URL လက်ခံပြီးပါပြီ။")
+    if update.effective_message:
+        await update.effective_message.reply_text("URL လက်ခံပြီးပါပြီ။")
     benchmark.record("input", time.time() - start_time)
 
 
@@ -438,26 +467,32 @@ async def scan_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     remember_user(update)
     if not await check_rate_limit(update):
         return
+    if not update.effective_chat:
+        return
     if not is_admin(update.effective_chat.id) and not access_active(update.effective_chat.id):
-        await update.effective_message.reply_text("Please activate a valid key first with /key <key>.")
+        if update.effective_message:
+            await update.effective_message.reply_text("Please activate a valid key first with /key <key>.")
         return
     if len(context.args) != 1:
-        await update.effective_message.reply_text("အသုံးပြုပုံ: /scan <url>")
+        if update.effective_message:
+            await update.effective_message.reply_text("အသုံးပြုပုံ: /scan <url>")
         return
     raw = context.args[0].strip()
     parsed = urlparse(raw)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        await update.effective_message.reply_text("URL မှားယွင်းနေပါသည်။")
+        if update.effective_message:
+            await update.effective_message.reply_text("URL မှားယွင်းနေပါသည်။")
         return
 
     # Start scan with limits
     scan_info = scan_controller.start_scan(update.effective_chat.id)
-    await update.effective_message.reply_text(
-        f"Scan စတင်ပါပြီ။\n"
-        f"Max targets: {scan_info['max_targets']}\n"
-        f"Timeout: {scan_info['timeout']}s\n"
-        f"ရပ်ချင်ရင် /stopscan နှိပ်ပါ။"
-    )
+    if update.effective_message:
+        await update.effective_message.reply_text(
+            f"Scan စတင်ပါပြီ။\n"
+            f"Max targets: {scan_info['max_targets']}\n"
+            f"Timeout: {scan_info['timeout']}s\n"
+            f"ရပ်ချင်ရင် /stopscan နှိပ်ပါ။"
+        )
 
     # Simulate scan with rate limiting and retry
     targets_done = 0
@@ -472,203 +507,29 @@ async def scan_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     result = scan_controller.stop_scan(update.effective_chat.id)
     elapsed = result.get("elapsed", 0) if result else 0
-    await update.effective_message.reply_text(
-        f"Scan ပြီးပါပြီ။\n"
-        f"Targets: {targets_done}\n"
-        f"ကြာချိန်: {elapsed:.1f}s\n"
-        f"အကြောင်းပြချက်: {reason}"
-    )
+    if update.effective_message:
+        await update.effective_message.reply_text(
+            f"Scan ပြီးပါပြီ။\n"
+            f"Targets: {targets_done}\n"
+            f"ကြာချိန်: {elapsed:.1f}s\n"
+            f"အကြောင်းပြချက်: {reason}"
+        )
     benchmark.record("scan", time.time() - start_time)
 
 
 async def stopscan_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     remember_user(update)
+    if not update.effective_chat:
+        return
     result = scan_controller.stop_scan(update.effective_chat.id)
-    if result:
-        await update.effective_message.reply_text(
-            f"Scan ရပ်ပြီးပါပြီ။\nTargets: {result['targets_processed']}\nကြာချိန်: {result['elapsed']:.1f}s"
-        )
-    else:
-        await update.effective_message.reply_text("Active scan မရှိပါ။")
+    if update.effective_message:
+        if result:
+            await update.effective_message.reply_text(
+                f"Scan ရပ်ပြီးပါပြီ။\nTargets: {result['targets_processed']}\nကြာချိန်: {result['elapsed']:.1f}s"
+            )
+        else:
+            await update.effective_message.reply_text("Active scan မရှိပါ။")
 
 
 # ─── Rate Limit Status Command ───────────────────────────────────────────────
-async def ratelimit_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    remember_user(update)
-    user_id = update.effective_chat.id
-    if is_admin(user_id):
-        await update.effective_message.reply_text("Admin: rate limit မရှိပါ။")
-        return
-    remaining = rate_limiter.remaining(user_id)
-    reset = rate_limiter.reset_time(user_id)
-    await update.effective_message.reply_text(
-        f"Rate Limit Status:\n"
-        f"ကျန်: {remaining}/{RATE_LIMIT_MAX_REQUESTS}\n"
-        f"Window: {RATE_LIMIT_WINDOW}s\n"
-        f"Reset: {reset:.0f}s"
-    )
-
-
-# ─── Admin Commands ──────────────────────────────────────────────────────────
-async def delkey(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    start_time = time.time()
-    remember_user(update)
-    if not is_admin(update.effective_chat.id):
-        await update.effective_message.reply_text("Admin only.")
-        return
-    if len(context.args) != 1:
-        await update.effective_message.reply_text("အသုံးပြုပုံ: /delkey <key> သို့ /delkey <user_id>")
-        return
-    target = context.args[0].strip()
-    data = load_data()
-    key_upper = target.upper()
-    if key_upper in data.get("keys", {}):
-        del data["keys"][key_upper]
-        save_data(data)
-        await update.effective_message.reply_text(f"Key {key_upper} ဖျက်ပြီးပါပြီ။")
-        benchmark.record("delkey", time.time() - start_time)
-        return
-    try:
-        user_id = int(target)
-        deleted = []
-        for k, v in list(data.get("keys", {}).items()):
-            if v.get("target_chat_id") == user_id:
-                deleted.append(k)
-                del data["keys"][k]
-        if deleted:
-            save_data(data)
-            await update.effective_message.reply_text(f"User {user_id} ရဲ့ key {len(deleted)} ခု ဖျက်ပြီးပါပြီ။")
-        else:
-            await update.effective_message.reply_text(f"User {user_id} အတွက် key မရှိပါ။")
-    except ValueError:
-        await update.effective_message.reply_text("Key ရှာမတွေ့ပါ။ Key သို့ User ID ထည့်ပါ။")
-    benchmark.record("delkey", time.time() - start_time)
-
-
-async def listkeys(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    start_time = time.time()
-    remember_user(update)
-    if not is_admin(update.effective_chat.id):
-        await update.effective_message.reply_text("Admin only.")
-        return
-    data = load_data()
-    keys = data.get("keys", {})
-    if not keys:
-        await update.effective_message.reply_text("Key တစ်ခုမှ မရှိသေးပါ။")
-        return
-    lines = []
-    for k, v in keys.items():
-        status = "REVOKED" if v.get("revoked") else ("EXPIRED" if datetime.fromisoformat(v["expires_at"]) <= now() else "ACTIVE")
-        user_id = v.get("target_chat_id", "?")
-        expires = v.get("expires_at", "?")[:16]
-        lines.append(f"<code>{k}</code>\n  User: {user_id} | {status} | Exp: {expires}")
-    msg = f"Keys ({len(keys)}):\n\n" + "\n\n".join(lines)
-    if len(msg) > 4000:
-        msg = msg[:4000] + "\n\n... (truncated)"
-    await update.effective_message.reply_text(msg, parse_mode="HTML")
-    benchmark.record("listkeys", time.time() - start_time)
-
-
-async def adminstats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    start_time = time.time()
-    remember_user(update)
-    if not is_admin(update.effective_chat.id):
-        await update.effective_message.reply_text("Admin only.")
-        return
-    data = load_data()
-    total = len(data.get("keys", {}))
-    active = sum(1 for r in data.get("keys", {}).values() if not r.get("revoked") and datetime.fromisoformat(r["expires_at"]) > now())
-    await update.effective_message.reply_text(
-        f"Keys generated: {total}\n"
-        f"Currently unexpired: {active}\n"
-        f"Users seen: {len(data.get('users', {}))}\n"
-        f"Rate limit: {RATE_LIMIT_MAX_REQUESTS} req/{RATE_LIMIT_WINDOW}s\n"
-        f"Scan limit: {SCAN_MAX_TARGETS} targets, {SCAN_TIMEOUT}s timeout\n"
-        f"Retry: {RETRY_MAX_ATTEMPTS} attempts, {RETRY_BASE_DELAY}s base delay\n"
-        f"Benchmark mode: {'ON' if BENCHMARK_MODE else 'OFF'}"
-    )
-    benchmark.record("adminstats", time.time() - start_time)
-
-
-# ─── Benchmark Command (Admin + Local Test Only) ─────────────────────────────
-async def benchmark_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    remember_user(update)
-    if not is_admin(update.effective_chat.id):
-        await update.effective_message.reply_text("Admin only.")
-        return
-    if not benchmark.enabled:
-        await update.effective_message.reply_text(
-            "Benchmark mode is OFF.\nSet BENCHMARK_MODE=true env var to enable (local test only)."
-        )
-        return
-    args = context.args
-    if args and args[0] == "reset":
-        benchmark.reset()
-        await update.effective_message.reply_text("Benchmark stats reset.")
-        return
-    stats = benchmark.get_stats()
-    await update.effective_message.reply_text(
-        f"Benchmark Stats (local test server):\n"
-        f"Total requests: {stats['total']}\n"
-        f"Avg latency: {stats['avg_ms']}ms\n"
-        f"Max latency: {stats['max_ms']}ms\n"
-        f"Min latency: {stats['min_ms']}ms\n"
-        f"Throughput: {stats['throughput']} req/s\n\n"
-        f"Use /benchmark reset to clear stats."
-    )
-
-
-# ─── Flask Health Server ─────────────────────────────────────────────────────
-app = Flask(__name__)
-
-
-@app.get("/")
-def health():
-    return jsonify({"status": "ok", "service": "magic-key-bot"})
-
-
-@app.get("/health")
-def health_check():
-    return jsonify({"status": "healthy"})
-
-
-@app.get("/stats")
-def stats():
-    """Benchmark stats endpoint for local testing."""
-    if not BENCHMARK_MODE:
-        return jsonify({"error": "Benchmark mode disabled"}), 403
-    return jsonify(benchmark.get_stats())
-
-
-def run_web():
-    app.run(host="0.0.0.0", port=PORT, threaded=True, use_reloader=False)
-
-
-# ─── Main ────────────────────────────────────────────────────────────────────
-def main():
-    threading.Thread(target=run_web, daemon=True, name="health-server").start()
-    application = Application.builder().token(TOKEN).build()
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("help", help_cmd))
-    application.add_handler(CommandHandler("genkey", genkey))
-    application.add_handler(CommandHandler("key", key_cmd))
-    application.add_handler(CommandHandler("status", status_cmd))
-    application.add_handler(CommandHandler("input", input_cmd))
-    application.add_handler(CommandHandler("scan", scan_cmd))
-    application.add_handler(CommandHandler("stopscan", stopscan_cmd))
-    application.add_handler(CommandHandler("ratelimit", ratelimit_cmd))
-    application.add_handler(CommandHandler("delkey", delkey))
-    application.add_handler(CommandHandler("listkeys", listkeys))
-    application.add_handler(CommandHandler("adminstats", adminstats))
-    application.add_handler(CommandHandler("benchmark", benchmark_cmd))
-    log.info("Starting Magic Key Bot with health server on port %s", PORT)
-    log.info("Rate limit: %d req/%ds | Scan: %d targets/%ds | Retry: %d attempts",
-             RATE_LIMIT_MAX_REQUESTS, RATE_LIMIT_WINDOW, SCAN_MAX_TARGETS, SCAN_TIMEOUT, RETRY_MAX_ATTEMPTS)
-    if BENCHMARK_MODE:
-        log.info("BENCHMARK MODE ENABLED - for local testing only!")
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
-
-
-if __name__ == "__main__":
-    main()
-
+async def 
