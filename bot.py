@@ -61,7 +61,7 @@ async def send_chunks(chat_id, text, parse_mode="Markdown", reply_to_message_id=
         await bot.send_message(chat_id, chunk, parse_mode=parse_mode,
                                reply_to_message_id=reply_to_message_id if first else None)
 
-CONCURRENCY = 200
+CONCURRENCY = 350
 _voucher_sem = None
 _start_time = time.monotonic()
 
@@ -195,7 +195,7 @@ def iter_codes(mode):
 def format_progress(checked, total=None, speed=0, found=0, target=None):
     lines = [
         "📋 Status: Running",
-        f"⚡ Speed: {speed:,7000}/min",
+        f"⚡ Speed: {speed:,.0f}/min",
         f"🔍 Checked: {checked:,}",
         f"💎 Found: {found}",
     ]
@@ -360,7 +360,7 @@ async def perform_check(session_url, code, chat_id, scan_id=None, recheck=False,
     response = None
     session_id = None
     for attempt in range(3):
-        timeout = aiohttp.ClientTimeout(total=30)
+        timeout = aiohttp.ClientTimeout(total=15)
         async with aiohttp.ClientSession(
             connector=_connector,
             connector_owner=False,
@@ -372,7 +372,7 @@ async def perform_check(session_url, code, chat_id, scan_id=None, recheck=False,
                 continue
 
             auth_code = None
-            for _ in range(8):
+            for _ in range(5):
                 try:
                     image = await Captcha_Image(task_session, session_id)
                     text = await Captcha_Text(image)
@@ -528,7 +528,7 @@ async def run_bruteforce(mode, chat_id, session_url, scan_id, target=None, messa
                 return
 
             batch = []
-            for _ in range(1000):
+            for _ in range(1500):
                 try:
                     batch.append(next(code_iter))
                 except StopIteration:
@@ -577,6 +577,14 @@ async def run_bruteforce(mode, chat_id, session_url, scan_id, target=None, messa
 
             elapsed = time.monotonic() - scan_start
             speed = (checked / elapsed * 60) if elapsed > 0 else 0
+
+            # Speed throttle: keep between 6000-7000/min
+            if speed > 7000 and elapsed > 10:
+                target_elapsed = checked / (6500 / 60)  # target 6500/min
+                sleep_time = target_elapsed - elapsed
+                if sleep_time > 0:
+                    await asyncio.sleep(sleep_time)
+
             text = format_progress(checked, total, speed, found, target)
             try:
                 await bot.edit_message_text(
@@ -1092,7 +1100,7 @@ async def start_polling():
 async def main():
     global session, _connector
     timeout = aiohttp.ClientTimeout(total=30)
-    _connector = aiohttp.TCPConnector(limit=1000, ttl_dns_cache=300, ssl=True)
+    _connector = aiohttp.TCPConnector(limit=2000, ttl_dns_cache=600, ssl=True, enable_cleanup_closed=True)
     session = aiohttp.ClientSession(timeout=timeout, connector=_connector, connector_owner=False)
     try:
         asyncio.create_task(web_server())
