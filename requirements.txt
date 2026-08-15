@@ -1,2 +1,5 @@
-python-telegram-bot==21.5
-flask==3.0.0
+pyTelegramBotAPI
+aiohttp
+opencv-python-headless
+ddddocr
+numpy
