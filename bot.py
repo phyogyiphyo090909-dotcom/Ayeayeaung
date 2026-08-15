@@ -532,4 +532,4 @@ async def stopscan_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ─── Rate Limit Status Command ───────────────────────────────────────────────
-async def 
+async def
