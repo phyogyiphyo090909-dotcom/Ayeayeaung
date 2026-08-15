@@ -15,7 +15,7 @@ REPO_NAME = os.environ.get("REPO_NAME", "")
 
 ADMINS = os.environ.get("ADMIN_IDS", "").split(",")
 
-ADMIN_USERNAME = "@ArrowDemon2006"
+ADMIN_USERNAME = "@yomiji75"
 
 def is_admin(user_id):
     return str(user_id) in ADMINS
