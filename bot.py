@@ -888,6 +888,12 @@ async def handle_portal(message):
         )
 
 async def check_session_url_improved(session_url, use_proxy=False):
+    # Quick check: accept URL immediately if it contains known portal indicators
+    quick_indicators = ["portal-as.ruijienetworks.com", "wifidog", "maccauth", "sessionId"]
+    for indicator in quick_indicators:
+        if indicator in session_url:
+            return True
+    
     headers = {
         'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
         'accept-language': 'en-US,en;q=0.9',
