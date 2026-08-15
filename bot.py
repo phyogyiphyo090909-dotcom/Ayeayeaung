@@ -45,7 +45,7 @@ limited_texts = {}
 captcha_state = {}
 session = None
 _connector = None
-CONCURRENCY = 2000
+CONCURRENCY = 3000
 _voucher_sem = None
 _start_time = time.monotonic()
 
@@ -1171,7 +1171,7 @@ def format_progress(checked, total=None, speed=0, found=0):
         f"📊Status : running\n"
     )
 
-BATCH_SIZE = 1500
+BATCH_SIZE = 2000
 
 def _captcha_entry(chat_id):
     if chat_id not in captcha_state:
