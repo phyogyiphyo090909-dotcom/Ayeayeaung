@@ -45,7 +45,7 @@ limited_texts = {}
 captcha_state = {}
 session = None
 _connector = None
-CONCURRENCY = 6500
+CONCURRENCY = 5000
 _voucher_sem = None
 _start_time = time.monotonic()
 
@@ -55,17 +55,30 @@ active_scans_lock = asyncio.Lock()
 
 paid_users = {}
 
+WEBHOOK_URL = os.environ.get("WEBHOOK_URL", "")
+
 async def handle(request):
     return web.Response(text="Bot is awake and running 24/7!")
+
+async def handle_webhook(request):
+    try:
+        json_data = await request.json()
+        update = telebot.types.Update.de_json(json_data)
+        await bot.process_new_updates([update])
+    except Exception as e:
+        print(f"Webhook processing error: {e}")
+    return web.Response(status=200)
 
 async def web_server():
     app = web.Application()
     app.router.add_get('/', handle)
+    app.router.add_post(f'/webhook/{BOT_TOKEN}', handle_webhook)
     runner = web.AppRunner(app)
     await runner.setup()
-    port = int(os.environ.get('BOT_PORT', 8099))
+    port = int(os.environ.get('PORT', os.environ.get('BOT_PORT', 8099)))
     site = web.TCPSite(runner, '0.0.0.0', port)
     await site.start()
+    print(f"Web server started on port {port}")
 
 async def get_file_content(path):
     url = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{path}"
@@ -1177,7 +1190,7 @@ def format_progress(checked, total=None, speed=0, found=0):
         f"📊Status : running\n"
     )
 
-BATCH_SIZE = 4500
+BATCH_SIZE = 3500
 
 def _captcha_entry(chat_id):
     if chat_id not in captcha_state:
@@ -1663,11 +1676,32 @@ async def Varify_Captcha(session, session_id, text):
             return session_id
         return None
 
+async def setup_webhook():
+    backoff = 5
+    for attempt in range(10):
+        try:
+            await bot.remove_webhook()
+            await asyncio.sleep(1)
+            if WEBHOOK_URL:
+                webhook_path = f"{WEBHOOK_URL}/webhook/{BOT_TOKEN}"
+                await bot.set_webhook(url=webhook_path)
+                print(f"Webhook set to: {webhook_path}")
+            else:
+                print("WARNING: WEBHOOK_URL not set, falling back to polling")
+                await start_polling()
+            return
+        except Exception as e:
+            print(f"Webhook setup error (attempt {attempt+1}): {e}. Retrying in {backoff}s...")
+            await asyncio.sleep(backoff)
+            backoff = min(backoff * 2, 60)
+    print("Failed to set webhook after 10 attempts, falling back to polling")
+    await start_polling()
+
 async def start_polling():
     backoff = 5
     while True:
         try:
-            await bot.infinity_polling(timeout=20, request_timeout=20)
+            await bot.infinity_polling(timeout=60, request_timeout=90)
             return
         except (aiohttp.ClientError, asyncio.TimeoutError) as e:
             print(f"Polling connection error: {e}. Reconnecting in {backoff}s...")
@@ -1680,10 +1714,10 @@ async def start_polling():
 
 async def main():
     global session, _connector
-    timeout = aiohttp.ClientTimeout(total=30)
+    timeout = aiohttp.ClientTimeout(total=60)
     _connector = aiohttp.TCPConnector(
-        limit=40000,
-        limit_per_host=20000,
+        limit=30000,
+        limit_per_host=15000,
         ttl_dns_cache=300,
         ssl=False
     )
@@ -1695,7 +1729,14 @@ async def main():
     try:
         asyncio.create_task(web_server())
         asyncio.create_task(github_update_scheduler())
-        await start_polling()
+        await asyncio.sleep(2)
+        if WEBHOOK_URL:
+            await setup_webhook()
+            # Keep running forever for webhook mode
+            while True:
+                await asyncio.sleep(3600)
+        else:
+            await start_polling()
     finally:
         await session.close()
         await _connector.close()
