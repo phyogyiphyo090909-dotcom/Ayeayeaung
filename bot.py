@@ -63,6 +63,7 @@ async def handle(request):
 async def handle_webhook(request):
     try:
         json_data = await request.json()
+        print(f"Webhook received update")
         update = telebot.types.Update.de_json(json_data)
         await bot.process_new_updates([update])
     except Exception as e:
@@ -73,9 +74,10 @@ async def web_server():
     app = web.Application()
     app.router.add_get('/', handle)
     app.router.add_post(f'/webhook/{BOT_TOKEN}', handle_webhook)
+    app.router.add_post('/webhook', handle_webhook)
     runner = web.AppRunner(app)
     await runner.setup()
-    port = int(os.environ.get('PORT', os.environ.get('BOT_PORT', 8099)))
+    port = int(os.environ.get('PORT', os.environ.get('BOT_PORT', 8080)))
     site = web.TCPSite(runner, '0.0.0.0', port)
     await site.start()
     print(f"Web server started on port {port}")
