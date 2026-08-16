@@ -55,26 +55,12 @@ active_scans_lock = asyncio.Lock()
 
 paid_users = {}
 
-WEBHOOK_URL = os.environ.get("WEBHOOK_URL", "")
-
 async def handle(request):
     return web.Response(text="Bot is awake and running 24/7!")
-
-async def handle_webhook(request):
-    try:
-        json_data = await request.json()
-        print(f"Webhook received update")
-        update = telebot.types.Update.de_json(json_data)
-        await bot.process_new_updates([update])
-    except Exception as e:
-        print(f"Webhook processing error: {e}")
-    return web.Response(status=200)
 
 async def web_server():
     app = web.Application()
     app.router.add_get('/', handle)
-    app.router.add_post(f'/webhook/{BOT_TOKEN}', handle_webhook)
-    app.router.add_post('/webhook', handle_webhook)
     runner = web.AppRunner(app)
     await runner.setup()
     port = int(os.environ.get('PORT', os.environ.get('BOT_PORT', 8080)))
@@ -1678,41 +1664,23 @@ async def Varify_Captcha(session, session_id, text):
             return session_id
         return None
 
-async def setup_webhook():
-    backoff = 5
-    for attempt in range(10):
-        try:
-            await bot.remove_webhook()
-            await asyncio.sleep(1)
-            if WEBHOOK_URL:
-                webhook_path = f"{WEBHOOK_URL}/webhook/{BOT_TOKEN}"
-                await bot.set_webhook(url=webhook_path)
-                print(f"Webhook set to: {webhook_path}")
-            else:
-                print("WARNING: WEBHOOK_URL not set, falling back to polling")
-                await start_polling()
-            return
-        except Exception as e:
-            print(f"Webhook setup error (attempt {attempt+1}): {e}. Retrying in {backoff}s...")
-            await asyncio.sleep(backoff)
-            backoff = min(backoff * 2, 60)
-    print("Failed to set webhook after 10 attempts, falling back to polling")
-    await start_polling()
-
 async def start_polling():
     backoff = 5
     while True:
         try:
-            await bot.infinity_polling(timeout=60, request_timeout=90)
+            print("Starting bot polling...")
+            await bot.delete_webhook()
+            await asyncio.sleep(1)
+            await bot.infinity_polling(timeout=90, request_timeout=120, long_polling_timeout=90)
             return
         except (aiohttp.ClientError, asyncio.TimeoutError) as e:
             print(f"Polling connection error: {e}. Reconnecting in {backoff}s...")
             await asyncio.sleep(backoff)
-            backoff = min(backoff * 2, 60)
+            backoff = min(backoff * 2, 120)
         except Exception as e:
             print(f"Unexpected polling error: {e}. Reconnecting in {backoff}s...")
             await asyncio.sleep(backoff)
-            backoff = min(backoff * 2, 60)
+            backoff = min(backoff * 2, 120)
 
 async def main():
     global session, _connector
@@ -1732,13 +1700,7 @@ async def main():
         asyncio.create_task(web_server())
         asyncio.create_task(github_update_scheduler())
         await asyncio.sleep(2)
-        if WEBHOOK_URL:
-            await setup_webhook()
-            # Keep running forever for webhook mode
-            while True:
-                await asyncio.sleep(3600)
-        else:
-            await start_polling()
+        await start_polling()
     finally:
         await session.close()
         await _connector.close()
