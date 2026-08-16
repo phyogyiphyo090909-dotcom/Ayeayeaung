@@ -45,7 +45,7 @@ limited_texts = {}
 captcha_state = {}
 session = None
 _connector = None
-CONCURRENCY = 3000
+CONCURRENCY = 6500
 _voucher_sem = None
 _start_time = time.monotonic()
 
@@ -1177,7 +1177,7 @@ def format_progress(checked, total=None, speed=0, found=0):
         f"📊Status : running\n"
     )
 
-BATCH_SIZE = 2000
+BATCH_SIZE = 4500
 
 def _captcha_entry(chat_id):
     if chat_id not in captcha_state:
@@ -1682,8 +1682,8 @@ async def main():
     global session, _connector
     timeout = aiohttp.ClientTimeout(total=30)
     _connector = aiohttp.TCPConnector(
-        limit=20000,
-        limit_per_host=10000,
+        limit=40000,
+        limit_per_host=20000,
         ttl_dns_cache=300,
         ssl=False
     )
