@@ -1382,7 +1382,7 @@ async def perform_check(session_url, code, chat_id, scan_id=None, recheck=False,
     response = None
     
     for _attempt in range(3):
-        timeout = aiohttp.ClientTimeout(total=30)
+        timeout = aiohttp.ClientTimeout(total=15)
         async with aiohttp.ClientSession(
             connector=_connector,
             connector_owner=False,
@@ -1393,7 +1393,7 @@ async def perform_check(session_url, code, chat_id, scan_id=None, recheck=False,
             if not session_id:
                 return
             auth_code = None
-            for _ in range(8):
+            for _ in range(5):
                 try:
                     image = await Captcha_Image(task_session, session_id)
                     text = await Captcha_Text(image)
@@ -1589,9 +1589,19 @@ def _ocr_sync(image_bytes):
     img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
     if img is None:
         return None
+    # Resize for better OCR accuracy
+    img = cv2.resize(img, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    blur = cv2.GaussianBlur(gray, (3, 3), 0)
-    _, thresh = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    # Remove noise
+    gray = cv2.medianBlur(gray, 3)
+    # Sharpen
+    kernel = np.array([[-1,-1,-1], [-1,9,-1], [-1,-1,-1]])
+    gray = cv2.filter2D(gray, -1, kernel)
+    # Adaptive threshold for better text extraction
+    thresh = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
+    # Morphological operations to clean up
+    kernel_morph = np.ones((2, 2), np.uint8)
+    thresh = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel_morph)
     _, buffer = cv2.imencode('.png', thresh)
     result = _ocr.classification(buffer.tobytes())
     return result.upper()
