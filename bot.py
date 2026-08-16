@@ -1671,7 +1671,7 @@ async def start_polling():
             print("Starting bot polling...")
             await bot.delete_webhook()
             await asyncio.sleep(1)
-            await bot.infinity_polling(timeout=90, request_timeout=120, long_polling_timeout=90)
+            await bot.infinity_polling(timeout=90, request_timeout=120)
             return
         except (aiohttp.ClientError, asyncio.TimeoutError) as e:
             print(f"Polling connection error: {e}. Reconnecting in {backoff}s...")
