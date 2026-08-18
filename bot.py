@@ -45,7 +45,7 @@ limited_texts = {}
 captcha_state = {}
 session = None
 _connector = None
-CONCURRENCY = 5000
+CONCURRENCY = 2500
 _voucher_sem = None
 _start_time = time.monotonic()
 
