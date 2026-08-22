@@ -18,6 +18,7 @@ def is_admin(user_id):
     return str(user_id) in ADMINS
 PROXY_LIST = [
     "w9nx03l4kl8vdf0:iwx3ijrwgcyil91@rp.scrapegw.com:6060",
+]
 _proxy_index = 0
 def get_next_proxy():
     global _proxy_index
