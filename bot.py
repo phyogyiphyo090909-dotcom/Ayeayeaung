@@ -158,8 +158,17 @@ def get_scam_button_keyboard():
 @bot.message_handler(commands=['start'])
 async def start(message):
     user_id = str(message.chat.id)
+
+    if user_id not in ADMINS and user_id not in paid_users and message.chat.id not in approve:
+        await bot.reply_to(
+            message,
+            f"❌ သင်၏ user ID ကို registered မလုပ်ရသေးပါ。\n\n"
+            f"PAID USER ဖြစ်ရန် Admin {ADMIN_USERNAME} သို့ ဆက်သွယ်ပါ。"
+        )
+        return
+        
     user_name = message.from_user.first_name or message.from_user.username or "User"
-    
+
     if message.chat.id not in user_data:
         user_data[message.chat.id] = {}
     
