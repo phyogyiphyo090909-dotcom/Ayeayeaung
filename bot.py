@@ -13,9 +13,9 @@ GITHUB_TOKEN = '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'
 REPO_OWNER = "phyogyiphyo090909-dotcom"
 REPO_NAME = "Ayeayeaung"
 
-ADMINS = [8506204759
+ADMINS_Id= 8506204759
     "",
-    ""
+    
 ]
 
 ADMIN_USERNAME = "@yomiji75"
