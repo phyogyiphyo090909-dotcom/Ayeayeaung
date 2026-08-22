@@ -12,21 +12,12 @@ BOT_TOKEN = "8543739539:AAGsPfi8gOMP9tqG8ZDgj8eJEGlVhladgZ4"
 GITHUB_TOKEN = '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'
 REPO_OWNER = "phyogyiphyo090909-dotcom"
 REPO_NAME = "Ayeayeaung"
-
-ADMINS_Id= 8506204759
-    "",
-    
-]
-
+ADMINS="8506204759"
 ADMIN_USERNAME = "@yomiji75"
-
 def is_admin(user_id):
     return str(user_id) in ADMINS
-
 PROXY_LIST = [
     "w9nx03l4kl8vdf0:iwx3ijrwgcyil91@rp.scrapegw.com:6060",
-]
-
 _proxy_index = 0
 def get_next_proxy():
     global _proxy_index
